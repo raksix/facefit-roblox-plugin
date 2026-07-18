@@ -8,10 +8,9 @@ local ImageProcessor = require(script.Parent.services.ImageProcessor)
 -- into the canvas as a translucent overlay so users see where the face
 -- region sits inside the full texture. See GhostRenderer.lua for API notes.
 local GhostRenderer = require(script.Parent.services.GhostRenderer)
--- AssetUploader (Task 6) and DecalApplier (Task 7) wire the end-to-end
--- Apply flow: upload the picked image asset and place a Decal on the
--- user-selected Head. See Task 9 brief for the contract.
-local AssetUploader = require(script.Parent.services.AssetUploader)
+-- DecalApplier (Task 7) wires the end-to-end Apply flow: place a Decal on
+-- the user-selected Head. AssetUploader (Task 6) was dropped at final review
+-- (M-1) — apply uses state.userImage directly.
 local DecalApplier = require(script.Parent.services.DecalApplier)
 
 local gui = script.Parent -- The DockWidgetPluginGui (parent of this LocalScript)
@@ -42,6 +41,40 @@ RequestPreview.Parent = gui
 local RequestApply = Instance.new("BindableEvent")
 RequestApply.Name = "RequestApply"
 RequestApply.Parent = gui
+
+-- === Apply handler (single source of truth for both Apply entry points) ===
+-- Fired by both:
+--   (a) this widget's own "Upload & Apply" button, and
+--   (b) PreviewModal's "Apply to Selected Head" button (RequestApply:Fire(state)).
+-- Keeping the validate / pcall-apply flow here means neither caller has to
+-- re-implement it. Module-init registration ensures both entry points route
+-- through the same code path regardless of which widget loads first.
+local function applyFromState(s: any)
+	if not s.userImage then
+		warn("FaceFit: Önce bir resim seç.")
+		return
+	end
+
+	local assetId = s.userImage :: string
+
+	local target = DecalApplier.getSelectedHead()
+	if not target then
+		warn("FaceFit: Lütfen bir Head seçin.")
+		return
+	end
+
+	local ok, err = pcall(function()
+		DecalApplier.apply(target, assetId, s.headType, "replace")
+	end)
+
+	if ok then
+		print("FaceFit: Decal applied to", target:GetFullName())
+	else
+		warn("FaceFit: Apply failed:", err)
+	end
+end
+
+RequestApply.Event:Connect(applyFromState)
 
 -- === Helper: updateCanvas (declared before buildUI so it is in scope for the PickImage click handler) ===
 local function updateCanvas()
@@ -289,7 +322,8 @@ local function buildUI()
 		RequestPreview:Fire(state)
 	end)
 
-	-- Apply button
+	-- Apply button — routes through RequestApply (handled by applyFromState
+	-- above) so DockWidget and PreviewModal share a single apply path.
 	local applyBtn = Instance.new("TextButton")
 	applyBtn.Text = "Upload & Apply"
 	applyBtn.Size = UDim2.new(1, -10, 0, 32)
@@ -298,34 +332,7 @@ local function buildUI()
 	applyBtn.LayoutOrder = 18
 	applyBtn.Parent = main
 	applyBtn.MouseButton1Click:Connect(function()
-		if not state.userImage then
-			warn("FaceFit: Önce bir resim seç.")
-			return
-		end
-
-		-- Step 1: render the positioned image into a final pixel buffer
-		-- (Implementation detail: uses EditableImage under the hood; for the
-		-- first cut we use the original userImage asset directly, since user
-		-- will see the result via PreviewModal before applying.)
-		local assetId = state.userImage :: string
-
-		-- Step 2: validate target
-		local target = DecalApplier.getSelectedHead()
-		if not target then
-			warn("FaceFit: Lütfen bir Head seçin.")
-			return
-		end
-
-		-- Step 3: apply (mode = "replace" by default for the Apply button)
-		local ok, err = pcall(function()
-			DecalApplier.apply(target, assetId, state.headType, "replace")
-		end)
-
-		if ok then
-			print("FaceFit: Decal applied to", target:GetFullName())
-		else
-			warn("FaceFit: Apply failed:", err)
-		end
+		RequestApply:Fire(state)
 	end)
 end
 

@@ -2,7 +2,8 @@
 -- FaceFit PreviewModal — 3D preview before apply (LocalScript, client context).
 -- Triggered by DockWidget's RequestPreview BindableEvent.
 
-local FaceMapper = require(script.Parent.Parent.DockWidgetGui.services.FaceMapper)
+-- FaceMapper dropped at final review (M-3): never referenced after the
+-- preview modal settled on direct DecalApplier calls.
 local DecalApplier = require(script.Parent.Parent.DockWidgetGui.services.DecalApplier)
 
 local dockGui = script.Parent.Parent.DockWidgetGui
@@ -11,13 +12,15 @@ local dockGui = script.Parent.Parent.DockWidgetGui
 -- parented under DockWidgetGui, and FindFirstChild returns nil — which then
 -- crashes on RequestPreview.Event:Connect. WaitForChild blocks until the
 -- child appears (or the timeout fires), eliminating the load-order race.
+-- RequestApply was added at final review so both Apply entry points
+-- (DockWidget's button + this modal's button) route through one handler.
 local RequestPreview = dockGui:WaitForChild("RequestPreview", 5) :: BindableEvent
+local RequestApply = dockGui:WaitForChild("RequestApply", 5) :: BindableEvent
 
 local modal: DockWidgetPluginGui? = nil
 local modalContent: ScreenGui? = nil
 local viewportFrame: ViewportFrame? = nil
 local testHead: BasePart? = nil
-local currentState: any = nil
 
 local function cleanup()
 	if testHead then
@@ -112,13 +115,10 @@ local function buildModal(state: any)
 	applyBtn.TextColor3 = Color3.new(1, 1, 1)
 	applyBtn.Parent = bg
 	applyBtn.MouseButton1Click:Connect(function()
-		local target = DecalApplier.getSelectedHead()
-		if not target then
-			warn("FaceFit: Head seçili değil.")
-			return
-		end
-		-- TODO: trigger upload flow (Task 9 wires this through DockWidget state)
-		print("FaceFit: Apply queued for selected Head:", target:GetFullName())
+		-- Route the apply action through DockWidget's RequestApply listener so
+		-- there is one source of truth for the validate / pcall-apply flow.
+		-- DockWidget's applyFromState handles target selection + decal apply.
+		RequestApply:Fire(state)
 		closeModal()
 	end)
 
