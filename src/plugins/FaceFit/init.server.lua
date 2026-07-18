@@ -29,7 +29,6 @@ local toggleButton = toolbar:CreateButton(
 )
 
 local dockWidgetGui: DockWidgetPluginGui? = nil
-local DockWidgetLocalScript = script.Parent.DockWidgetGui.DockWidget
 
 local function openDock()
 	if not dockWidgetGui then
@@ -38,7 +37,10 @@ local function openDock()
 			DockWidgetPluginGuiInfo.new(Enum.InitialDockState.Right, false, false, 320, 600, 320, 200)
 		)
 		dockWidgetGui.Title = "FaceFit"
-		-- LocalScript already lives under DockWidgetGui; it auto-runs when enabled.
+		-- The DockWidget LocalScript lives under script.Parent.DockWidgetGui and is
+		-- auto-attached by Studio when this DockWidgetPluginGui is enabled. It is
+		-- created in Task 4, so we do NOT eagerly look it up here (that lookup would
+		-- error before the click handler ever fires if the LocalScript is absent).
 	end
 	dockWidgetGui.Enabled = not dockWidgetGui.Enabled
 end
