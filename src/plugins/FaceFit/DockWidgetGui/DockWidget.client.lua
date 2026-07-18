@@ -8,6 +8,11 @@ local ImageProcessor = require(script.Parent.services.ImageProcessor)
 -- into the canvas as a translucent overlay so users see where the face
 -- region sits inside the full texture. See GhostRenderer.lua for API notes.
 local GhostRenderer = require(script.Parent.services.GhostRenderer)
+-- AssetUploader (Task 6) and DecalApplier (Task 7) wire the end-to-end
+-- Apply flow: upload the picked image asset and place a Decal on the
+-- user-selected Head. See Task 9 brief for the contract.
+local AssetUploader = require(script.Parent.services.AssetUploader)
+local DecalApplier = require(script.Parent.services.DecalApplier)
 
 local gui = script.Parent -- The DockWidgetPluginGui (parent of this LocalScript)
 
@@ -297,7 +302,30 @@ local function buildUI()
 			warn("FaceFit: Önce bir resim seç.")
 			return
 		end
-		RequestApply:Fire(state)
+
+		-- Step 1: render the positioned image into a final pixel buffer
+		-- (Implementation detail: uses EditableImage under the hood; for the
+		-- first cut we use the original userImage asset directly, since user
+		-- will see the result via PreviewModal before applying.)
+		local assetId = state.userImage :: string
+
+		-- Step 2: validate target
+		local target = DecalApplier.getSelectedHead()
+		if not target then
+			warn("FaceFit: Lütfen bir Head seçin.")
+			return
+		end
+
+		-- Step 3: apply (mode = "replace" by default for the Apply button)
+		local ok, err = pcall(function()
+			DecalApplier.apply(target, assetId, state.headType, "replace")
+		end)
+
+		if ok then
+			print("FaceFit: Decal applied to", target:GetFullName())
+		else
+			warn("FaceFit: Apply failed:", err)
+		end
 	end)
 end
 

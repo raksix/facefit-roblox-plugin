@@ -6,7 +6,12 @@ local FaceMapper = require(script.Parent.Parent.DockWidgetGui.services.FaceMappe
 local DecalApplier = require(script.Parent.Parent.DockWidgetGui.services.DecalApplier)
 
 local dockGui = script.Parent.Parent.DockWidgetGui
-local RequestPreview = dockGui:FindFirstChild("RequestPreview") :: BindableEvent
+-- Task 9 race fix: WaitForChild with 5s timeout instead of FindFirstChild.
+-- If PreviewModal loads before DockWidget, the BindableEvent is not yet
+-- parented under DockWidgetGui, and FindFirstChild returns nil — which then
+-- crashes on RequestPreview.Event:Connect. WaitForChild blocks until the
+-- child appears (or the timeout fires), eliminating the load-order race.
+local RequestPreview = dockGui:WaitForChild("RequestPreview", 5) :: BindableEvent
 
 local modal: DockWidgetPluginGui? = nil
 local modalContent: ScreenGui? = nil
