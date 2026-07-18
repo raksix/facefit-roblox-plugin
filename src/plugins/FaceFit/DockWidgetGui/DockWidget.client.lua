@@ -4,6 +4,10 @@
 
 local FaceMapper = require(script.Parent.services.FaceMapper)
 local ImageProcessor = require(script.Parent.services.ImageProcessor)
+-- GhostRenderer added in Task 5. Returns an EditableImage that we render
+-- into the canvas as a translucent overlay so users see where the face
+-- region sits inside the full texture. See GhostRenderer.lua for API notes.
+local GhostRenderer = require(script.Parent.services.GhostRenderer)
 
 local gui = script.Parent -- The DockWidgetPluginGui (parent of this LocalScript)
 
@@ -36,10 +40,14 @@ RequestApply.Parent = gui
 
 -- === Helper: updateCanvas (declared before buildUI so it is in scope for the PickImage click handler) ===
 local function updateCanvas()
-	local canvas = gui:FindFirstChild("Main") and gui.Main:FindFirstChild("Canvas")
-	if canvas and canvas:IsA("ImageLabel") and state.userImage then
-		-- Set user image, ghost template overlaid in Task 5.
-		canvas.Image = "rbxassetid://" .. tostring(state.userImage)
+	-- Canvas is now a Frame containing UserImage (top) + GhostImage (bottom)
+	-- siblings — see buildUI. Set only the user image here; the ghost is
+	-- rendered through GhostRenderer and pushed via ImageContent.
+	local frame = gui:FindFirstChild("Main") and gui.Main:FindFirstChild("Canvas")
+	if not frame then return end
+	local userImage = frame:FindFirstChild("UserImage")
+	if userImage and userImage:IsA("ImageLabel") and state.userImage then
+		userImage.Image = "rbxassetid://" .. tostring(state.userImage)
 	end
 end
 
@@ -61,6 +69,11 @@ local function buildUI()
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
 	layout.Padding = UDim.new(0, 6)
 	layout.Parent = main
+
+	-- Forward declaration for renderGhost (defined after the canvas is built).
+	-- The head-type radio and resolution dropdown handlers reference this
+	-- helper, so the local must be visible before those closures are wired.
+	local renderGhost: () -> ()
 
 	-- Image picker
 	local pickBtn = Instance.new("TextButton")
@@ -114,11 +127,13 @@ local function buildUI()
 		state.headType = "R6"
 		r6.BackgroundColor3 = Color3.fromRGB(60, 130, 200)
 		r15.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+		renderGhost()
 	end)
 	r15.MouseButton1Click:Connect(function()
 		state.headType = "R15"
 		r15.BackgroundColor3 = Color3.fromRGB(60, 130, 200)
 		r6.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+		renderGhost()
 	end)
 
 	-- Resolution dropdown
@@ -142,17 +157,45 @@ local function buildUI()
 			state.resolution = 512
 		end
 		resDropdown.Text = tostring(state.resolution) .. "x" .. tostring(state.resolution)
+		renderGhost()
 	end)
 
-	-- Canvas
-	local canvas = Instance.new("ImageLabel")
+	-- Canvas — Frame container holding two stacked ImageLabels.
+	-- Task 5: GhostImage (bottom, translucent overlay) + UserImage (top,
+	-- the picked asset). The ghost is produced via GhostRenderer using
+	-- the current headType + resolution, and assigned via ImageContent.
+	local canvas = Instance.new("Frame")
 	canvas.Name = "Canvas"
 	canvas.Size = UDim2.new(1, -10, 0, 300)
 	canvas.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 	canvas.BackgroundTransparency = 0
 	canvas.LayoutOrder = 6
 	canvas.Parent = main
-	canvas.Image = "" -- ghost template rendered at runtime in Task 5
+
+	local ghostImage = Instance.new("ImageLabel")
+	ghostImage.Name = "GhostImage"
+	ghostImage.Size = UDim2.new(1, 0, 1, 0)
+	ghostImage.BackgroundTransparency = 1
+	ghostImage.ImageTransparency = 0
+	ghostImage.ScaleType = Enum.ScaleType.Stretch
+	ghostImage.ZIndex = 1
+	ghostImage.Parent = canvas
+
+	local userImage = Instance.new("ImageLabel")
+	userImage.Name = "UserImage"
+	userImage.Size = UDim2.new(1, 0, 1, 0)
+	userImage.BackgroundTransparency = 1
+	userImage.ScaleType = Enum.ScaleType.Stretch
+	userImage.ZIndex = 2
+	userImage.Parent = canvas
+
+	-- Helper: re-render the ghost overlay for the current headType/resolution.
+	-- Called on initial build and whenever head/resolution change.
+	renderGhost = function()
+		local asset = GhostRenderer.render(state.headType, state.resolution)
+		ghostImage.ImageContent = Content.fromObject(asset)
+	end
+	renderGhost()
 
 	-- Sliders (zoom, offsetX, offsetY, rotation)
 	local function makeSlider(label: string, key: string, min: number, max: number, order: number): TextLabel
