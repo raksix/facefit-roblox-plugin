@@ -34,6 +34,15 @@ local RequestApply = Instance.new("BindableEvent")
 RequestApply.Name = "RequestApply"
 RequestApply.Parent = gui
 
+-- === Helper: updateCanvas (declared before buildUI so it is in scope for the PickImage click handler) ===
+local function updateCanvas()
+	local canvas = gui:FindFirstChild("Main") and gui.Main:FindFirstChild("Canvas")
+	if canvas and canvas:IsA("ImageLabel") and state.userImage then
+		-- Set user image, ghost template overlaid in Task 5.
+		canvas.Image = "rbxassetid://" .. tostring(state.userImage)
+	end
+end
+
 -- === Helper: build UI ===
 local function buildUI()
 	-- Clear any existing children (re-entrancy safety)
@@ -247,14 +256,6 @@ local function buildUI()
 		end
 		RequestApply:Fire(state)
 	end)
-end
-
-local function updateCanvas()
-	local canvas = gui:FindFirstChild("Main") and gui.Main:FindFirstChild("Canvas")
-	if canvas and canvas:IsA("ImageLabel") and state.userImage then
-		-- Set user image, ghost template overlaid in Task 5.
-		canvas.Image = "rbxassetid://" .. tostring(state.userImage)
-	end
 end
 
 buildUI()
