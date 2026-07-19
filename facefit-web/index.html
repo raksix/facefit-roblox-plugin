@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FaceFit — Roblox Yüz Decal Editörü</title>
+<style>
+  :root {
+    --bg: #1a1a1a;
+    --panel: #252525;
+    --border: #333;
+    --text: #e6e6e6;
+    --muted: #888;
+    --accent: #3c82f6;
+    --accent-hover: #2563eb;
+    --green: #3ca05a;
+    --red: #b14545;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    margin: 0;
+    padding: 20px;
+    min-height: 100vh;
+  }
+  h1 { margin: 0 0 4px; font-size: 22px; font-weight: 600; }
+  .subtitle { color: var(--muted); font-size: 13px; margin: 0 0 16px; }
+  .layout {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 340px 1fr;
+    gap: 20px;
+  }
+  @media (max-width: 800px) {
+    .layout { grid-template-columns: 1fr; }
+  }
+  .panel {
+    background: var(--panel);
+    padding: 16px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+  }
+  button {
+    background: var(--accent);
+    color: white;
+    border: 0;
+    padding: 8px 14px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    margin-right: 6px;
+    margin-bottom: 6px;
+    transition: background 0.15s;
+  }
+  button:hover { background: var(--accent-hover); }
+  button.secondary {
+    background: #3d3d3d;
+    color: #ddd;
+  }
+  button.secondary:hover { background: #4a4a4a; }
+  button.secondary.active {
+    background: var(--accent);
+    color: white;
+  }
+  button.danger { background: var(--red); }
+  button.green { background: var(--green); }
+  button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  label {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 13px;
+    margin-top: 14px;
+    margin-bottom: 4px;
+    color: #ccc;
+  }
+  label .val {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    background: #1a1a1a;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    color: #fff;
+  }
+  input[type=range] {
+    width: 100%;
+    accent-color: var(--accent);
+  }
+  canvas {
+    background: #111;
+    display: block;
+    width: 100%;
+    max-width: 560px;
+    height: auto;
+    image-rendering: pixelated;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    margin: 0 auto;
+  }
+  .file-status {
+    font-size: 12px;
+    color: var(--muted);
+    margin: 6px 0 0;
+    word-break: break-all;
+  }
+  .actions { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+</style>
+</head>
+<body>
+
+<div class="layout">
+  <!-- LEFT PANEL: controls -->
+  <div class="panel">
+    <h1>FaceFit</h1>
+    <p class="subtitle">Roblox yüz decal'i için resmini yerleştir, PNG olarak indir.</p>
+
+    <button id="uploadBtn">📁 Resim Seç</button>
+    <input type="file" id="fileInput" accept="image/png,image/jpeg" hidden>
+    <p class="file-status" id="fileStatus">Henüz resim seçilmedi.</p>
+
+    <label>Head Tipi</label>
+    <button id="r6Btn" class="secondary">R6</button>
+    <button id="r15Btn" class="secondary">R15</button>
+
+    <label>Çözünürlük</label>
+    <button id="resBtn" class="secondary">512×512</button>
+
+    <label>Zoom <span class="val" id="zoomVal">1.00</span></label>
+    <input type="range" id="zoomSlider" min="0.25" max="4" step="0.05" value="1">
+
+    <label>Offset X <span class="val" id="offsetXVal">0</span></label>
+    <input type="range" id="offsetXSlider" min="-256" max="256" step="1" value="0">
+
+    <label>Offset Y <span class="val" id="offsetYVal">0</span></label>
+    <input type="range" id="offsetYSlider" min="-256" max="256" step="1" value="0">
+
+    <label>Rotation <span class="val" id="rotVal">0°</span></label>
+    <input type="range" id="rotSlider" min="-180" max="180" step="1" value="0">
+
+    <div class="actions">
+      <button id="snapBtn" class="secondary active">Grid Snap: AÇIK</button>
+      <button id="resetBtn" class="danger">Reset</button>
+      <button id="exportBtn" class="green" disabled>💾 PNG İndir</button>
+    </div>
+  </div>
+
+  <!-- RIGHT PANEL: canvas -->
+  <div class="panel">
+    <canvas id="canvas" width="512" height="512"></canvas>
+  </div>
+</div>
+
+<script>
+// =========================================================================
+// FaceFit — single-file web app. Same face-region math as the Roblox plugin
+// (R6/R15, 512/1024) but renders to a browser canvas and exports PNG.
+// =========================================================================
+
+const REGIONS = {
+  R6: {
+    512:  { x: 128, y: 128, w: 256, h: 256, cx: 256, cy: 256 },
+    1024: { x: 256, y: 256, w: 512, h: 512, cx: 512, cy: 512 },
+  },
+  R15: {
+    512:  { x: 128, y:  72, w: 256, h: 256, cx: 256, cy: 200 },
+    1024: { x: 256, y: 144, w: 512, h: 512, cx: 512, cy: 400 },
+  },
+};
+
+const GRID_PX = 16;
+
+// === State ===
+const state = {
+  image: null,
+  headType: "R15",
+  resolution: 512,
+  position: { offsetX: 0, offsetY: 0, zoom: 1, rotation: 0, snapEnabled: true },
+};
+
+// === DOM ===
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+const fileInput = document.getElementById("fileInput");
+const fileStatus = document.getElementById("fileStatus");
+const exportBtn = document.getElementById("exportBtn");
+
+// === File picker ===
+document.getElementById("uploadBtn").onclick = () => fileInput.click();
+fileInput.onchange = (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => {
+    state.image = img;
+    fileStatus.textContent = `✓ ${file.name} (${img.width}×${img.height})`;
+    fileStatus.style.color = "#8f8";
+    exportBtn.disabled = false;
+    draw();
+  };
+  img.onerror = () => {
+    fileStatus.textContent = "✗ Resim yüklenemedi.";
+    fileStatus.style.color = "#f88";
+  };
+  img.src = url;
+};
+
+// === Head type ===
+const r6Btn = document.getElementById("r6Btn");
+const r15Btn = document.getElementById("r15Btn");
+function updateHeadTypeUI() {
+  r6Btn.classList.toggle("active", state.headType === "R6");
+  r15Btn.classList.toggle("active", state.headType === "R15");
+}
+r6Btn.onclick = () => { state.headType = "R6"; updateHeadTypeUI(); clampAndDraw(); };
+r15Btn.onclick = () => { state.headType = "R15"; updateHeadTypeUI(); clampAndDraw(); };
+
+// === Resolution ===
+const resBtn = document.getElementById("resBtn");
+resBtn.onclick = () => {
+  state.resolution = state.resolution === 512 ? 1024 : 512;
+  canvas.width = canvas.height = state.resolution;
+  // Update slider bounds to match new resolution
+  document.getElementById("offsetXSlider").max = state.resolution / 2;
+  document.getElementById("offsetXSlider").min = -state.resolution / 2;
+  document.getElementById("offsetYSlider").max = state.resolution / 2;
+  document.getElementById("offsetYSlider").min = -state.resolution / 2;
+  resBtn.textContent = `${state.resolution}×${state.resolution}`;
+  clampAndDraw();
+};
+
+// === Sliders ===
+function bindSlider(id, key, valElId, format) {
+  const slider = document.getElementById(id);
+  const valEl = document.getElementById(valElId);
+  slider.oninput = () => {
+    state.position[key] = parseFloat(slider.value);
+    valEl.textContent = format(state.position[key]);
+    clampAndDraw();
+  };
+  valEl.textContent = format(state.position[key]);
+}
+bindSlider("zoomSlider", "zoom", "zoomVal", v => v.toFixed(2));
+bindSlider("offsetXSlider", "offsetX", "offsetXVal", v => String(Math.round(v)));
+bindSlider("offsetYSlider", "offsetY", "offsetYVal", v => String(Math.round(v)));
+bindSlider("rotSlider", "rotation", "rotVal", v => `${Math.round(v)}°`);
+
+// === Snap / Reset ===
+const snapBtn = document.getElementById("snapBtn");
+snapBtn.onclick = () => {
+  state.position.snapEnabled = !state.position.snapEnabled;
+  snapBtn.classList.toggle("active", state.position.snapEnabled);
+  snapBtn.textContent = state.position.snapEnabled ? "Grid Snap: AÇIK" : "Grid Snap: KAPALI";
+  clampAndDraw();
+};
+
+document.getElementById("resetBtn").onclick = () => {
+  const snap = state.position.snapEnabled;
+  state.position = { offsetX: 0, offsetY: 0, zoom: 1, rotation: 0, snapEnabled: snap };
+  document.getElementById("zoomSlider").value = 1;
+  document.getElementById("offsetXSlider").value = 0;
+  document.getElementById("offsetYSlider").value = 0;
+  document.getElementById("rotSlider").value = 0;
+  document.getElementById("zoomVal").textContent = "1.00";
+  document.getElementById("offsetXVal").textContent = "0";
+  document.getElementById("offsetYVal").textContent = "0";
+  document.getElementById("rotVal").textContent = "0°";
+  draw();
+};
+
+// === Clamp helpers ===
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const snapToGrid = (v, g) => Math.round(v / g) * g;
+const clampZoom = z => clamp(z, 0.25, 4);
+const wrapRotation = d => { let r = d % 360; if (r > 180) r -= 360; if (r < -180) r += 360; return r; };
+
+function clampAndDraw() {
+  const half = state.resolution / 2;
+  const p = state.position;
+  p.offsetX = clamp(p.offsetX, -half, half);
+  p.offsetY = clamp(p.offsetY, -half, half);
+  p.zoom = clampZoom(p.zoom);
+  p.rotation = wrapRotation(p.rotation);
+  if (p.snapEnabled) {
+    p.offsetX = snapToGrid(p.offsetX, GRID_PX);
+    p.offsetY = snapToGrid(p.offsetY, GRID_PX);
+  }
+  // Reflect clamped values into sliders
+  document.getElementById("offsetXSlider").value = p.offsetX;
+  document.getElementById("offsetYSlider").value = p.offsetY;
+  document.getElementById("offsetXVal").textContent = String(Math.round(p.offsetX));
+  document.getElementById("offsetYVal").textContent = String(Math.round(p.offsetY));
+  draw();
+}
+
+// === Draw ===
+function draw() {
+  ctx.fillStyle = "#222";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const region = REGIONS[state.headType][state.resolution];
+
+  // User image: scale to cover face region, then apply offset/zoom/rotation
+  if (state.image) {
+    ctx.save();
+    const cx = region.cx + state.position.offsetX;
+    const cy = region.cy + state.position.offsetY;
+    ctx.translate(cx, cy);
+    ctx.rotate(state.position.rotation * Math.PI / 180);
+    ctx.scale(state.position.zoom, state.position.zoom);
+
+    // Cover-fit the image inside the face region
+    const imgAspect = state.image.width / state.image.height;
+    const regionAspect = region.w / region.h;
+    let drawW, drawH;
+    if (imgAspect > regionAspect) {
+      drawH = region.h;
+      drawW = drawH * imgAspect;
+    } else {
+      drawW = region.w;
+      drawH = drawW / imgAspect;
+    }
+    ctx.drawImage(state.image, -drawW / 2, -drawH / 2, drawW, drawH);
+    ctx.restore();
+  }
+
+  // Face region overlay (faint fill + border)
+  ctx.fillStyle = "rgba(255, 255, 255, 0.05)";
+  ctx.fillRect(region.x, region.y, region.w, region.h);
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.6)";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(region.x + 1, region.y + 1, region.w - 2, region.h - 2);
+
+  // Center crosshair (helps with rotation/offset intuition)
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(region.cx - 8, region.cy);
+  ctx.lineTo(region.cx + 8, region.cy);
+  ctx.moveTo(region.cx, region.cy - 8);
+  ctx.lineTo(region.cx, region.cy + 8);
+  ctx.stroke();
+}
+
+// === Export PNG ===
+exportBtn.onclick = () => {
+  // Re-draw without the ghost overlay so the exported file is "clean"
+  const hadImage = state.image !== null;
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  if (hadImage) {
+    const region = REGIONS[state.headType][state.resolution];
+    ctx.save();
+    const cx = region.cx + state.position.offsetX;
+    const cy = region.cy + state.position.offsetY;
+    ctx.translate(cx, cy);
+    ctx.rotate(state.position.rotation * Math.PI / 180);
+    ctx.scale(state.position.zoom, state.position.zoom);
+    const imgAspect = state.image.width / state.image.height;
+    const regionAspect = region.w / region.h;
+    let drawW, drawH;
+    if (imgAspect > regionAspect) {
+      drawH = region.h;
+      drawW = drawH * imgAspect;
+    } else {
+      drawW = region.w;
+      drawH = drawW / imgAspect;
+    }
+    ctx.drawImage(state.image, -drawW / 2, -drawH / 2, drawW, drawH);
+    ctx.restore();
+  }
+
+  // Now export just the face region (the part that goes on the decal)
+  const region = REGIONS[state.headType][state.resolution];
+  const exportCanvas = document.createElement("canvas");
+  exportCanvas.width = region.w;
+  exportCanvas.height = region.h;
+  const exportCtx = exportCanvas.getContext("2d");
+  // The user image is already positioned correctly within the full canvas;
+  // we just need to extract the region from the full canvas.
+  exportCtx.drawImage(
+    canvas,
+    region.x, region.y, region.w, region.h,
+    0, 0, region.w, region.h
+  );
+
+  const link = document.createElement("a");
+  link.download = `facefit-${state.headType}-${state.resolution}.png`;
+  link.href = exportCanvas.toDataURL("image/png");
+  link.click();
+
+  // Redraw the on-screen canvas with the ghost overlay back on
+  draw();
+};
+
+// === Init ===
+updateHeadTypeUI();
+resBtn.textContent = `${state.resolution}×${state.resolution}`;
+draw();
+</script>
+
+</body>
+</html>
