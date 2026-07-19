@@ -138,14 +138,33 @@ A separate Roblox Studio plugin that places a user-picked image on a selected ch
 
 - **Source tree (this repo)**: `D:\AI\src\plugins\FaceFit\` — mirrors what ships.
 - **Installed plugin (live)**: `C:\Users\raksi\AppData\Local\Roblox\Plugins\FaceFit\` — Studio loads the plugin from here. The two paths must stay byte-identical. When you edit source, also copy to the installed path (Studio auto-detects file changes and reloads).
-- **Layout**:
-  - `init.server.lua` — Plugin entry point. Creates toolbar + dock widget; on first click reparents `DockWidgetGui/DockWidget.client.lua` into the runtime DockWidgetPluginGui so `buildUI()` parents UI to a renderable dock. BindableEvents (`RequestPreview`, `RequestApply`) live in the source Folder at `Plugin.DockWidgetGui/`, NOT inside the dock widget itself — PreviewModal looks them up there.
-  - `DockWidgetGui/DockWidget.client.lua` — Main editor UI: image picker, R6/R15 radio, 512/1024 toggle, canvas with ghost overlay, zoom/offset/rotation sliders, grid snap, Reset, Preview, Apply.
-  - `DockWidgetGui/services/` — Pure-Luau modules: `FaceMapper`, `ImageProcessor`, `GhostRenderer`, `AssetUploader`, `DecalApplier`. Required by `DockWidget.client.lua` and `PreviewModal.client.lua`.
-  - `PreviewModalGui/PreviewModal.client.lua` — 3D ViewportFrame preview opened by DockWidget's Preview button. Fires `RequestApply` (BindableEvent on `DockWidgetGui` Folder) when its Apply button is clicked; the DockWidget listener does the actual apply.
-  - `tests/` — TestEZ scaffold + 17 unit tests for FaceMapper + ImageProcessor. Run via `require(game.ReplicatedStorage.Plugins.FaceFit.tests.run_tests)` in Play mode.
-- **Dev scaffold (in-place testing)**: When `ReplicatedStorage.Plugins.FaceFit` is a Folder (not a real Plugin instance), `init.server.lua` short-circuits via `IsA("Plugin")` guard. Real toolbar only works after install via Plugin Manager or `File → Save as Local Plugin`.
-- **Important**: When modifying, edit the source at `D:\AI\src\plugins\FaceFit\` AND copy to `C:\Users\raksi\AppData\Local\Roblox\Plugins\FaceFit\`. Studio auto-reloads plugin source on file change.
+- **Architecture — single-file build**: The plugin folder contains exactly **one** `.lua` file: `init.server.lua`. All other scripts (`DockWidget.client`, `PreviewModal.client`, plus the four service `ModuleScript`s — `FaceMapper`, `ImageProcessor`, `GhostRenderer`, `DecalApplier`) live as Lua string constants inside `init.server.lua` and are materialised at runtime via `Instance.new(...).Source = ...` when the user first opens the dock.
+
+  **Why**: Roblox Studio's plugin folder loader exhibits a bug where every `.lua` file under a subfolder becomes a `Folder { Script }` combo and that Script auto-runs with the wrong `script.Parent` (the Folder, not the Plugin), spamming the console with `"X is not a valid member of Plugin"`. Confirmed live by the Studio output log when the plugin was first installed. Keeping the folder single-file sidesteps this entirely.
+
+- **Runtime tree** (built on first dock toggle):
+  ```
+  DockWidgetPluginGui (FaceFitDock)
+  ├── FaceMapper       ModuleScript  — pure-data face-region table
+  ├── ImageProcessor   ModuleScript  — canvas math (clamp/snap/rotate)
+  ├── GhostRenderer    ModuleScript  — EditableImage producing the overlay
+  ├── DecalApplier     ModuleScript  — places the Decal on the selected Head
+  ├── RequestPreview   BindableEvent — DockWidget → PreviewModal
+  ├── RequestApply     BindableEvent — both Apply buttons → DockWidget listener
+  ├── DockWidget       LocalScript   — main docked UI (image picker, R6/R15, canvas, sliders)
+  └── PreviewModal     LocalScript   — listens for RequestPreview; pops a float DockWidgetPluginGui
+  ```
+  All runtime scripts look their services up via `script.Parent:FindFirstChild("X")` (siblings of the DockWidgetPluginGui).
+
+- **To modify**:
+  1. Edit the source at `D:\AI\src\plugins\FaceFit\init.server.lua`.
+  2. Mirror to `C:\Users\raksi\AppData\Local\Roblox\Plugins\FaceFit\init.server.lua` (byte-identical).
+  3. Studio auto-reloads when the file changes (right-click toolbar button → Reload if needed).
+  4. **Never** add new `.lua` files under the plugin folder — the loader bug affects anything under subfolders, not `init.server.lua`. To add a new service or UI script, paste it into `init.server.lua` as a string constant and create it via `Instance.new(...).Source`.
+
+- **Tests**: The TestEZ scaffold from earlier iterations was deleted alongside the subfolders. Manual Studio integration is the verified test path (per Tasks 10/11 progress notes); pure-Luau logic for `FaceMapper` and `ImageProcessor` is exercised by the dock itself when the user toggles head type / resolution.
+
+- **Dev scaffold (in-place testing)**: When `ReplicatedStorage.Plugins.FaceFit` is a Folder (not a real Plugin instance), `init.server.lua` short-circuits via `IsA("Plugin")` guard. Real toolbar only works after install via Studio's Plugins folder (`%LOCALAPPDATA%\Roblox\Plugins\FaceFit\`) or `File → Save as Local Plugin`.
 
 ## Local backups outside Studio
 
