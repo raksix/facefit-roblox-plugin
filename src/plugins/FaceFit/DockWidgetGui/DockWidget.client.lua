@@ -34,13 +34,19 @@ state.headType = FaceMapper.getDefaultHeadType(nil) -- "R15"
 state.resolution = 512
 
 -- === BindableEvents (consumed by PreviewModal) ===
+-- Parent to the stable source Folder at Plugin.DockWidgetGui (NOT to gui,
+-- which is the DockWidgetPluginGui after init.server.lua reparents us).
+-- PreviewModal looks up these events via WaitForChild on the Folder, so
+-- the parent must be stable across reparenting.
+local eventFolder = script.Parent.Parent:FindFirstChild("DockWidgetGui")
+		or script.Parent -- fallback if Folder missing (shouldn't happen in real install)
 local RequestPreview = Instance.new("BindableEvent")
 RequestPreview.Name = "RequestPreview"
-RequestPreview.Parent = gui
+RequestPreview.Parent = eventFolder
 
 local RequestApply = Instance.new("BindableEvent")
 RequestApply.Name = "RequestApply"
-RequestApply.Parent = gui
+RequestApply.Parent = eventFolder
 
 -- === Apply handler (single source of truth for both Apply entry points) ===
 -- Fired by both:

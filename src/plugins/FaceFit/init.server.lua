@@ -37,10 +37,18 @@ local function openDock()
 			DockWidgetPluginGuiInfo.new(Enum.InitialDockState.Right, false, false, 320, 600, 320, 200)
 		)
 		dockWidgetGui.Title = "FaceFit"
-		-- The DockWidget LocalScript lives under script.Parent.DockWidgetGui and is
-		-- auto-attached by Studio when this DockWidgetPluginGui is enabled. It is
-		-- created in Task 4, so we do NOT eagerly look it up here (that lookup would
-		-- error before the click handler ever fires if the LocalScript is absent).
+
+		-- Reparent the DockWidget LocalScript into the DockWidgetPluginGui so
+		-- its buildUI() parents UI elements to the renderable dock (not the
+		-- source Folder, which doesn't render). Disable → reparent → re-enable
+		-- triggers a fresh run with the correct parent.
+		local dockFolder = Plugin:FindFirstChild("DockWidgetGui")
+		local dockScript = dockFolder and dockFolder:FindFirstChild("DockWidget")
+		if dockScript and dockScript:IsA("LocalScript") and dockScript.Parent ~= dockWidgetGui then
+			dockScript.Disabled = true
+			dockScript.Parent = dockWidgetGui
+			dockScript.Disabled = false
+		end
 	end
 	dockWidgetGui.Enabled = not dockWidgetGui.Enabled
 end
