@@ -573,13 +573,27 @@ exportBtn.onclick = () => {
     0, 0, region.w, region.h
   );
 
-  const link = document.createElement("a");
-  link.download = `facefit-${state.headType}-${state.resolution}.png`;
-  link.href = exportCanvas.toDataURL("image/png");
-  link.click();
-
-  // Redraw the on-screen canvas with the ghost overlay back on
-  draw();
+  // Export: blob + objectURL is more reliable than toDataURL for downloads
+  exportCanvas.toBlob((blob) => {
+    if (!blob) {
+      fileStatus.textContent = "✗ Export başarısız (toBlob null döndü).";
+      fileStatus.style.color = "#f88";
+      draw();
+      return;
+    }
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.download = `facefit-${state.headType}-${state.resolution}.png`;
+    link.href = url;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    fileStatus.textContent = `✓ İndirildi: ${link.download}`;
+    fileStatus.style.color = "#8f8";
+    // Redraw the on-screen canvas with the ghost overlay back on
+    draw();
+  }, "image/png");
 };
 
 // === Init ===
