@@ -135,6 +135,12 @@
     <label>Zoom <span class="val" id="zoomVal">1.00</span></label>
     <input type="range" id="zoomSlider" min="0.25" max="4" step="0.05" value="1">
 
+    <label>Stretch X <span class="val" id="stretchXVal">1.00</span></label>
+    <input type="range" id="stretchXSlider" min="0.1" max="8" step="0.05" value="1">
+
+    <label>Stretch Y <span class="val" id="stretchYVal">1.00</span></label>
+    <input type="range" id="stretchYSlider" min="0.1" max="8" step="0.05" value="1">
+
     <label>Offset X <span class="val" id="offsetXVal">0</span></label>
     <input type="range" id="offsetXSlider" min="-256" max="256" step="1" value="0">
 
@@ -145,6 +151,7 @@
     <input type="range" id="rotSlider" min="-180" max="180" step="1" value="0">
 
     <div class="actions">
+      <button id="stretchBtn" class="secondary">🎯 Stretch Modu</button>
       <button id="snapBtn" class="secondary active">Grid Snap: AÇIK</button>
       <button id="resetBtn" class="danger">Reset</button>
       <button id="exportBtn" class="green" disabled>💾 PNG İndir</button>
@@ -181,7 +188,14 @@ const state = {
   image: null,
   headType: "R15",
   resolution: 512,
-  position: { offsetX: 0, offsetY: 0, zoom: 1, rotation: 0, snapEnabled: true },
+  stretchMode: false,
+  position: {
+    offsetX: 0, offsetY: 0,
+    zoom: 1,
+    stretchX: 1, stretchY: 1,
+    rotation: 0,
+    snapEnabled: true,
+  },
 };
 
 // === DOM ===
@@ -248,6 +262,8 @@ function bindSlider(id, key, valElId, format) {
   valEl.textContent = format(state.position[key]);
 }
 bindSlider("zoomSlider", "zoom", "zoomVal", v => v.toFixed(2));
+bindSlider("stretchXSlider", "stretchX", "stretchXVal", v => v.toFixed(2));
+bindSlider("stretchYSlider", "stretchY", "stretchYVal", v => v.toFixed(2));
 bindSlider("offsetXSlider", "offsetX", "offsetXVal", v => String(Math.round(v)));
 bindSlider("offsetYSlider", "offsetY", "offsetYVal", v => String(Math.round(v)));
 bindSlider("rotSlider", "rotation", "rotVal", v => `${Math.round(v)}°`);
@@ -263,12 +279,16 @@ snapBtn.onclick = () => {
 
 document.getElementById("resetBtn").onclick = () => {
   const snap = state.position.snapEnabled;
-  state.position = { offsetX: 0, offsetY: 0, zoom: 1, rotation: 0, snapEnabled: snap };
+  state.position = { offsetX: 0, offsetY: 0, zoom: 1, stretchX: 1, stretchY: 1, rotation: 0, snapEnabled: snap };
   document.getElementById("zoomSlider").value = 1;
+  document.getElementById("stretchXSlider").value = 1;
+  document.getElementById("stretchYSlider").value = 1;
   document.getElementById("offsetXSlider").value = 0;
   document.getElementById("offsetYSlider").value = 0;
   document.getElementById("rotSlider").value = 0;
   document.getElementById("zoomVal").textContent = "1.00";
+  document.getElementById("stretchXVal").textContent = "1.00";
+  document.getElementById("stretchYVal").textContent = "1.00";
   document.getElementById("offsetXVal").textContent = "0";
   document.getElementById("offsetYVal").textContent = "0";
   document.getElementById("rotVal").textContent = "0°";
@@ -307,14 +327,17 @@ function draw() {
 
   const region = REGIONS[state.headType][state.resolution];
 
-  // User image: scale to cover face region, then apply offset/zoom/rotation
+  // User image: scale to cover face region, then apply offset/zoom/stretch/rotation
   if (state.image) {
     ctx.save();
     const cx = region.cx + state.position.offsetX;
     const cy = region.cy + state.position.offsetY;
     ctx.translate(cx, cy);
     ctx.rotate(state.position.rotation * Math.PI / 180);
-    ctx.scale(state.position.zoom, state.position.zoom);
+    ctx.scale(
+      state.position.zoom * state.position.stretchX,
+      state.position.zoom * state.position.stretchY
+    );
 
     // Cover-fit the image inside the face region
     const imgAspect = state.image.width / state.image.height;
@@ -329,6 +352,11 @@ function draw() {
     }
     ctx.drawImage(state.image, -drawW / 2, -drawH / 2, drawW, drawH);
     ctx.restore();
+  }
+
+  // Stretch handles (only when stretch mode is on and an image is loaded)
+  if (state.stretchMode && state.image) {
+    drawStretchHandles();
   }
 
   // Face region overlay (faint fill + border)
@@ -349,6 +377,156 @@ function draw() {
   ctx.stroke();
 }
 
+// === Stretch mode: corner handles + drag-to-resize ===
+const stretchBtn = document.getElementById("stretchBtn");
+stretchBtn.onclick = () => {
+  state.stretchMode = !state.stretchMode;
+  stretchBtn.classList.toggle("active", state.stretchMode);
+  stretchBtn.textContent = state.stretchMode ? "🎯 Stretch: AÇIK" : "🎯 Stretch Modu";
+  canvas.style.cursor = state.stretchMode ? "crosshair" : "default";
+  draw();
+};
+
+// Compute the 4 image corners in canvas coordinates (after rotation + scale + stretch).
+function getImageCorners() {
+  const p = state.position;
+  const region = REGIONS[state.headType][state.resolution];
+  const cx = region.cx + p.offsetX;
+  const cy = region.cy + p.offsetY;
+  const imgAspect = state.image.width / state.image.height;
+  const regionAspect = region.w / region.h;
+  let drawW, drawH;
+  if (imgAspect > regionAspect) {
+    drawH = region.h;
+    drawW = drawH * imgAspect;
+  } else {
+    drawW = region.w;
+    drawH = drawW / imgAspect;
+  }
+  // Apply stretch + zoom to get the on-canvas half-extents
+  const halfW = (drawW / 2) * p.zoom * p.stretchX;
+  const halfH = (drawH / 2) * p.zoom * p.stretchY;
+  const cos = Math.cos(p.rotation * Math.PI / 180);
+  const sin = Math.sin(p.rotation * Math.PI / 180);
+  const local = [
+    { name: "NW", lx: -halfW, ly: -halfH },
+    { name: "NE", lx: +halfW, ly: -halfH },
+    { name: "SW", lx: -halfW, ly: +halfH },
+    { name: "SE", lx: +halfW, ly: +halfH },
+  ];
+  return local.map(c => ({
+    name: c.name,
+    x: cx + c.lx * cos - c.ly * sin,
+    y: cy + c.lx * sin + c.ly * cos,
+  }));
+}
+
+function drawStretchHandles() {
+  const corners = getImageCorners();
+  // Handle size scales with canvas resolution (12px at 512, 24px at 1024)
+  const size = 14 * (canvas.width / 512);
+  ctx.fillStyle = "#fff";
+  ctx.strokeStyle = "#3c82f6";
+  ctx.lineWidth = 2 * (canvas.width / 512);
+  for (const c of corners) {
+    ctx.fillRect(c.x - size / 2, c.y - size / 2, size, size);
+    ctx.strokeRect(c.x - size / 2, c.y - size / 2, size, size);
+  }
+}
+
+// Convert mouse event coords to canvas internal coords (canvas may be CSS-scaled).
+function getMousePos(e) {
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: (e.clientX - rect.left) * (canvas.width / rect.width),
+    y: (e.clientY - rect.top) * (canvas.height / rect.height),
+  };
+}
+
+let draggingCorner = null;
+
+canvas.addEventListener("mousedown", (e) => {
+  if (!state.stretchMode || !state.image) return;
+  const mouse = getMousePos(e);
+  const corners = getImageCorners();
+  // Hit-test radius scales with canvas size (15px at 512, 30px at 1024)
+  const hit = 18 * (canvas.width / 512);
+  for (const c of corners) {
+    const dx = mouse.x - c.x;
+    const dy = mouse.y - c.y;
+    if (dx * dx + dy * dy < hit * hit) {
+      draggingCorner = c.name;
+      e.preventDefault();
+      canvas.style.cursor = "grabbing";
+      break;
+    }
+  }
+});
+
+canvas.addEventListener("mousemove", (e) => {
+  if (!draggingCorner) return;
+  const mouse = getMousePos(e);
+  const p = state.position;
+  const region = REGIONS[state.headType][state.resolution];
+
+  // Inverse-transform: canvas -> image-local (with current scale, BEFORE updating stretch)
+  const cx = region.cx + p.offsetX;
+  const cy = region.cy + p.offsetY;
+  const cos = Math.cos(-p.rotation * Math.PI / 180);
+  const sin = Math.sin(-p.rotation * Math.PI / 180);
+  const dx = mouse.x - cx;
+  const dy = mouse.y - cy;
+  const lx = dx * cos - dy * sin;
+  const ly = dx * sin + dy * cos;
+
+  // Base half-extents (zoom applied, stretch NOT)
+  const imgAspect = state.image.width / state.image.height;
+  const regionAspect = region.w / region.h;
+  let drawW, drawH;
+  if (imgAspect > regionAspect) {
+    drawH = region.h;
+    drawW = drawH * imgAspect;
+  } else {
+    drawW = region.w;
+    drawH = drawW / imgAspect;
+  }
+  const baseHalfW = (drawW / 2) * p.zoom;
+  const baseHalfH = (drawH / 2) * p.zoom;
+
+  // Each corner maps to a quadrant in image-local space; stretch = |mouse_local / base|
+  // Sign comes from which corner (NW: both negative, NE: x positive y negative, etc.)
+  let sx, sy;
+  switch (draggingCorner) {
+    case "NW": sx = -lx / baseHalfW; sy = -ly / baseHalfH; break;
+    case "NE": sx = +lx / baseHalfW; sy = -ly / baseHalfH; break;
+    case "SW": sx = -lx / baseHalfW; sy = +ly / baseHalfH; break;
+    case "SE": sx = +lx / baseHalfW; sy = +ly / baseHalfH; break;
+  }
+  // Clamp to a sane range so the image can't be flipped or zero-sized
+  p.stretchX = clamp(sx, 0.1, 8);
+  p.stretchY = clamp(sy, 0.1, 8);
+
+  // Sync sliders + value labels
+  document.getElementById("stretchXSlider").value = p.stretchX;
+  document.getElementById("stretchYSlider").value = p.stretchY;
+  document.getElementById("stretchXVal").textContent = p.stretchX.toFixed(2);
+  document.getElementById("stretchYVal").textContent = p.stretchY.toFixed(2);
+  draw();
+});
+
+canvas.addEventListener("mouseup", () => {
+  if (draggingCorner) {
+    draggingCorner = null;
+    canvas.style.cursor = state.stretchMode ? "crosshair" : "default";
+  }
+});
+canvas.addEventListener("mouseleave", () => {
+  if (draggingCorner) {
+    draggingCorner = null;
+    canvas.style.cursor = state.stretchMode ? "crosshair" : "default";
+  }
+});
+
 // === Export PNG ===
 exportBtn.onclick = () => {
   // Re-draw without the ghost overlay so the exported file is "clean"
@@ -363,7 +541,10 @@ exportBtn.onclick = () => {
     const cy = region.cy + state.position.offsetY;
     ctx.translate(cx, cy);
     ctx.rotate(state.position.rotation * Math.PI / 180);
-    ctx.scale(state.position.zoom, state.position.zoom);
+    ctx.scale(
+      state.position.zoom * state.position.stretchX,
+      state.position.zoom * state.position.stretchY
+    );
     const imgAspect = state.image.width / state.image.height;
     const regionAspect = region.w / region.h;
     let drawW, drawH;
