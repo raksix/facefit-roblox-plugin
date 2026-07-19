@@ -38,16 +38,19 @@ local function openDock()
 		)
 		dockWidgetGui.Title = "FaceFit"
 
-		-- Reparent the DockWidget LocalScript into the DockWidgetPluginGui so
-		-- its buildUI() parents UI elements to the renderable dock (not the
-		-- source Folder, which doesn't render). Disable → reparent → re-enable
-		-- triggers a fresh run with the correct parent.
+		-- Create a NEW LocalScript inside the DockWidgetPluginGui by copying
+		-- the source from the source Folder. Re-parenting an already-run
+		-- LocalScript does NOT re-trigger its run (the coroutine is gone),
+		-- and Folder parent doesn't auto-execute LocalScripts at all — so the
+		-- only reliable way to get buildUI() to run inside the dock is to
+		-- make a fresh LocalScript child of the DockWidgetPluginGui.
 		local dockFolder = Plugin:FindFirstChild("DockWidgetGui")
-		local dockScript = dockFolder and dockFolder:FindFirstChild("DockWidget")
-		if dockScript and dockScript:IsA("LocalScript") and dockScript.Parent ~= dockWidgetGui then
-			dockScript.Disabled = true
-			dockScript.Parent = dockWidgetGui
-			dockScript.Disabled = false
+		local sourceScript = dockFolder and dockFolder:FindFirstChild("DockWidget")
+		if sourceScript and sourceScript:IsA("LocalScript") then
+			local newScript = Instance.new("LocalScript")
+			newScript.Name = sourceScript.Name
+			newScript.Source = sourceScript.Source
+			newScript.Parent = dockWidgetGui
 		end
 	end
 	dockWidgetGui.Enabled = not dockWidgetGui.Enabled
